@@ -1,0 +1,188 @@
+# capability-tiers.yaml
+# DSH cordis 服务 -> 能力分级映射（V0 手工登记版）
+# 覆盖官方 @deepseek-ai/dsh-* 包的关键子集 + 若干已知的高危第三方服务。
+# 未登记的服务一律在扫描器里落入 "unknown"（拒绝默认安全），不落入本文件的任何分级。
+
+critical:
+  # 凭证 / 命令执行 / 审批绕过 —— 一旦拿到，等价于拿到本机 shell + API Key
+  - dsh-credentials
+  - dsh-credentials-local
+  - dsh-bash-local
+  - dsh-bash-sandbox
+  - dsh-tool-bash
+  - dsh-tool-bash-persistent
+  - dsh-pwsh-local
+  - dsh-pwsh-sandbox
+  - dsh-tool-pwsh
+  - dsh-user-approval
+  - dsh-shell
+  - dsh-shell-env
+  - dsh-subprocess
+  - dsh-subprocess-local
+  - dsh-terminal
+  - dsh-terminal-bash
+  - dsh-native-command
+  # 常见第三方高危服务（人工登记，需持续维护）
+  - dsh-ssh                     # SSH 执行/隧道
+  - "@linxin666/dsh-ssh"
+
+high:
+  # 文件系统越权 / 沙箱策略 / 动态代码执行 / 外部进程桥接
+  - dsh-fs
+  - dsh-fs-local
+  - dsh-fs-sandbox
+  - dsh-fs-observation-policy
+  - dsh-sandbox
+  - dsh-sandbox-local
+  - dsh-sandbox-policy
+  - dsh-sandbox-windows-acl
+  - dsh-tool-fs
+  - dsh-tool-fs-search
+  - dsh-permission-presets
+  - dsh-code-runtime
+  - dsh-code-runtime-worker-thread
+  - dsh-cordis-host-runner
+  - dsh-tool-cordis
+  - dsh-host-apiproxy
+  - dsh-host-directory-picker
+  - dsh-host-directory-picker-auto
+  - dsh-host-directory-picker-browse
+  - dsh-host-directory-picker-native
+  - dsh-mcp-client
+  - dsh-attachment
+  - dsh-attachment-local
+  - dsh-tool-web
+  - dsh-web-search-deepseek
+  - dsh-host-webserver
+
+medium:
+  # 会话/历史读取、遥测导出、后台任务、跨会话编排 —— 隐私/数据面，非直接执行面
+  - dsh-session
+  - dsh-session-persistence
+  - dsh-session-persistence-jsonl
+  - dsh-session-query
+  - dsh-session-query-sqlite
+  - dsh-session-telemetry
+  - dsh-session-telemetry-otel
+  - dsh-session-log-export
+  - dsh-session-reference
+  - dsh-session-stats
+  - dsh-session-title
+  - dsh-session-title-llm
+  - dsh-session-title-first-prompt-llm
+  - dsh-session-checkpoint-policy
+  - dsh-session-projection
+  - dsh-session-projection-cache
+  - dsh-storage
+  - dsh-storage-domain
+  - dsh-storage-json
+  - dsh-jobs
+  - dsh-jobs-local
+  - dsh-tool-jobs
+  - dsh-subagent
+  - dsh-subagent-fork-in-process
+  - dsh-subagent-in-process-driver
+  - dsh-subagent-spawn-in-process
+  - dsh-tool-subagent
+  - dsh-tool-subagent-control
+  - dsh-tool-subagent-report
+  - dsh-goal
+  - dsh-goal-round-driver
+  - dsh-tool-goal
+  - dsh-workflow
+  - dsh-workflow-worker-thread
+  - dsh-tool-workflow
+  - dsh-schedule
+  - dsh-tool-ralph
+  - dsh-message-feedback
+  - dsh-token-meter
+  - dsh-compaction
+  - dsh-compaction-basic
+  - dsh-compaction-tool-result-pruner
+  - dsh-spill
+  - dsh-spill-local
+  - dsh-spill-policy
+  - dsh-launch-environment
+  - dsh-tmux-context
+
+low:
+  # UI / 展示 / 皮肤 / 纯文案类，基本不构成执行面或数据面风险
+  - dsh-brand
+  - dsh-persona
+  - dsh-skill
+  - dsh-skill-badge
+  - dsh-skill-filesystem
+  - dsh-tool-skill
+  - dsh-tool-ask-user
+  - dsh-user-questions
+  - dsh-plan-mode
+  - dsh-system-prompt
+  - dsh-agent-instructions
+  - dsh-agent-tool-presentation
+  - dsh-commands
+  - dsh-command-compact
+  - dsh-command-feedback
+  - dsh-command-goal
+  - dsh-typert-loader
+  - dsh-typert-protocol
+  - dsh-typert-registry
+  - dsh-scope
+  - dsh-invariants
+  - dsh-anonymous-user-id
+  - dsh-home-paths
+  - dsh-settings
+  - dsh-settings-file
+  - dsh-tool-todo
+  - dsh-time-context
+  - dsh-repeat-tool-reminder
+  - dsh-output-retention
+  - dsh-timeout
+  - dsh-tool-call-timeout-policy
+  - dsh-host-plugin-inventory
+  - dsh-app-boot
+  - dsh-web
+  - dsh-web-app
+  - dsh-web-frontend
+  - dsh-host-frontend-static
+  - dsh-api-gateway
+  - dsh-api-remotes
+  - dsh-llm
+  - dsh-llm-deepseek
+  - dsh-llm-pi-ai
+  - dsh-llm-retry
+  - dsh-agent
+  - dsh-agent-loop
+  - dsh-agent-presets
+  - dsh-agent-default-model
+
+low_prefix_wildcards:
+  # 前缀通配：client-ui 系列体量太大，逐个登记不划算，统一按"展示层"归档
+  - "dsh-client-ui-"
+  - "dsh-client-web"
+  - "@linxin666/dsh-client-ui-"
+
+# --- bare cordis SERVICE names (Signal A/B keys) ---
+# inject arrays and member-expression hits use short service names, not npm
+# package names. Added after first dogfooding run surfaced 'approval'/'sandbox'/
+# 'sessions' etc. resolving to unknown despite their owning packages being listed above.
+critical_extra_service_names: &crit_svc
+  - credentials
+  - shell
+  - bash
+  - approval
+  - ssh
+high_extra_service_names: &high_svc
+  - sandbox
+  - fs
+  - tools          # ctx.tools: a plugin that can register/override model-facing tools
+medium_extra_service_names: &med_svc
+  - sessions
+  - sessionProjections
+  - sessionQuery
+  - webServer      # network-facing host server
+  - loader         # cordis loader control (can enable/disable/reconfigure other plugins!)
+low_extra_service_names: &low_svc
+  - systemPrompt
+  - commands
+  - settings
+  - clientModules

@@ -1,0 +1,39 @@
+{
+  "name": "dsh-capcheck",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "V0 capability-disclosure scanner for DeepSeek Harness (DSH) cordis plugins: reports which sensitive services (credentials/shell/approval/sandbox/fs/tools...) a plugin declares or references before you trust it.",
+  "license": "MIT",
+  "main": "src/plugin.js",
+  "bin": {
+    "dsh-capcheck": "./bin/cli.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "data",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "security",
+    "supply-chain"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.4",
+    "js-yaml": "^4.1.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "*"
+  }
+}
