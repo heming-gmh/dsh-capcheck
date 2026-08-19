@@ -1,70 +1,82 @@
-# dsh-capcheck
+# dsh-capcheck 🔍
 
-**V0 capability-disclosure scanner for DeepSeek Harness (DSH) cordis plugins.**
+**装一个 DSH 插件之前，先看清楚它到底摸得到你机器上的什么 —— 零执行静态扫描，几秒出结果。**
 
-Before you trust a third-party DSH plugin, know what it can actually touch: credentials, shell/bash, approval, sandbox, filesystem, the tool registry, the cordis loader itself. `dsh-capcheck` answers that with pure static analysis — it never executes the code it scans.
+## 30 秒看懂：这是真扫出来的，不是假设
 
-## Why
+```
+$ node bin/cli.js <本地已装的 dsh-ssh 插件目录>
 
-Cordis plugins run as ordinary Node modules inside the same process as the DSH host: there is no capability sandbox around plugin code itself (see DSH's own `dsh-cordis-host-runner` docs: "treat a dynamic package like bash access"). `dsh-capcheck` reads what a plugin actually declares/references before you decide to trust it.
-
-## Three signals
-
-- **Signal A — declared `inject`**: the structural, framework-enforced dependency declaration every cordis plugin already has (`static inject = [...]` / `const inject = [...]`). Highest confidence.
-- **Signal B — bare `ctx.<service>` member access**: lower confidence, restricted to a literal `ctx`/`context` identifier base to avoid false positives (e.g. `client.shell(...)` from an unrelated library is NOT flagged).
-- **Signal C — `package.json` dependencies**: cross-referenced against the same tier registry, works without even downloading the plugin's code.
-
-All three signals are cross-checked against `data/capability-tiers.yaml`, a manually maintained sensitivity registry. **Anything not in the registry reports as `unknown`, never as silently safe.**
-
-## Install as a CLI
-
-```sh
-node bin/cli.js <local-plugin-dir> [--json]
-node bin/batch-npm.js <npm-package-name> ...   # scans the REAL published tarball, not GitHub source
-node bin/batch.js <owner/repo> ...              # scans GitHub repo contents directly (less reliable — see Known Limitations)
+  [HIGH]  tools        (declared=true)
+  [MEDIUM] webServer   (declared=true)
+  [LOW]   systemPrompt (declared=true)
 ```
 
-## Install as a DSH plugin
+> ⚠️ 这个插件从头到尾没有声明或引用 ctx.shell / ctx.sandbox / ctx.approval —— 它的 SSH 远程命令执行走的是自己内置的 ssh2 库，完全绕开了 DSH 官方的审批闸门和沙箱。能执行远程命令这件事，对 DSH 自身的安全模型是不可见的。这正是 dsh-capcheck 存在的理由。
+
+## 真实扫出来的发现（生态里已发布的插件，不是玩具样例）
+
+- **dsh-ssh**：如上，远程命令执行能力对官方沙箱/审批完全隐身。
+- **dshmarket**（插件市场）：通过 ctx.inject(['loader'], ...) 拿到 cordis Loader 控制权——理论上能静默启停机器上任何其它插件，是目前扫到的权限最重的一类。
+- **dsh-provenance / dsh-plugin-check / dsh-egress-guard**（都是安全/体检类插件）：全部都在注册新的 agent 工具——审查者也要被审查，不是一句空话。
+
+完整方法论、全部扫描数据、工程踩坑记录见 reports/ecosystem-capability-landscape-v0.md
+
+## 装它 / 用它
+
+作为命令行工具：
+
+```sh
+node bin/cli.js <本地插件目录>                 # 扫一个已经装在本机的插件
+node bin/batch-npm.js <npm包名>                # 扫真实发布的 npm tarball（推荐，见下）
+```
+
+作为 DSH 插件（让 agent 直接帮你查）：
 
 ```sh
 dsh plugin --profile web add dsh-capcheck
 ```
 
-Registers the `dsh_capcheck` agent tool: ask the model to "scan this plugin before I install it" and it calls the tool directly. Verified end-to-end via:
+装好后直接问模型：帮我用 dsh_capcheck 查一下这个插件装了会摸到什么。已做过端到端真实验证——模型真的调用了工具并给出结构化报告，见下方已知局限之前的验证记录。
 
-```sh
-dsh --profile headless --patch <(printf -- '- insert:\n    - id: dsh-capcheck\n      name: dsh-capcheck\n') \
-  "Use the dsh_capcheck tool to scan the local plugin at <path> with kind=local, then report the summary counts by tier."
+## 为什么需要这东西
+
+DSH 的 cordis 插件就是普通 Node 模块，直接跑在宿主进程里，没有任何权限沙箱——官方自己的文档写着：把动态插件当成 bash access 来对待。也就是说，装一个插件，理论上它就能摸到你的 API Key、执行命令、绕过审批。dsh-capcheck 在你按下安装键之前，先告诉你这个插件实际声明/引用了哪些敏感能力。
+
+## 它怎么查（三路信号，按可信度从高到低）
+
+1. **结构化声明**：cordis 插件框架自带的 inject 数组（static inject = [...]），这是官方依赖注入机制强制要求的，最可信。
+2. **裸成员访问**：代码里 ctx.credentials / ctx.shell 这类直接访问，只认字面上是 ctx/context 的对象（已修过一个真实误判：某插件里 client.shell(...) 是第三方 ssh2 库自己的方法，跟 ctx.shell 无关）。
+3. **package.json 依赖**：不用下载代码，扫依赖声明就能先粗筛一轮。
+
+三路信号都要对照一张可维护的能力分级表（data/capability-tiers.yaml）——查不到的服务一律标 unknown，绝不默认安全。
+
+## 已知局限（真跑出来才发现的坑，写在这里而不是藏着）
+
+1. GitHub 仓库源码常常不是实际安装的代码——很多插件的构建产物只在发布时打进 npm tarball，没提交到 git；直接扫 GitHub 仓库在实测样本里 52% 失败。优先用 bin/batch-npm.js（扫真实 tarball），GitHub 扫描仅作对照。
+2. main/exports 字段不统一：很多社区插件只声明 exports（三种不同形状），已实现兼容解析（src/resolve-entry.js）。
+3. 裸成员访问是启发式，不是证明：只能识别未经改名/解构的 ctx.xxx 直接访问。
+4. 能力分级表需要持续维护：目前只覆盖官方包 + 少数知名第三方服务，其余一律 unknown。
+5. 还没有动态验证（V1 计划中）：一个存心作恶的插件可以不声明 inject，靠间接引用绕过静态扫描，只有真正加载运行时用 Proxy 记录实际访问才能抓到这类规避。
+
+## 目录结构
+
+```
+src/extract-inject.js   acorn 静态分析（信号 1+2）
+src/resolve-entry.js    package.json main/exports 解析
+src/tiers.js            能力分级表加载
+src/scan-package.js     扫本地已装目录
+src/scan-npm.js         扫真实发布的 npm tarball（推荐）
+src/scan-remote.js      扫 GitHub 仓库内容（已知不可靠，见上）
+src/plugin.js           DSH/cordis 插件外壳，注册 dsh_capcheck 工具
+bin/cli.js / batch.js / batch-npm.js   命令行入口
+data/capability-tiers.yaml   能力分级表（持续维护的核心资产）
+reports/                 生态扫描报告
 ```
 
-## Known limitations (found by actually running this against real plugins — see `reports/`)
+## 现状
 
-1. **GitHub repo source is often NOT what gets installed.** Many plugins gitignore their build output; scanning GitHub directly failed on 52% of a 25-repo sample. Prefer the npm-tarball scanner (`bin/batch-npm.js`).
-2. **`main`/`exports` field resolution matters.** A naive `pkgJson.main || 'index.js'` silently mis-resolves most community plugins that only declare `exports`. See `src/resolve-entry.js`.
-3. **Signal B is a heuristic, not proof.** It only looks at property names on a literal `ctx`/`context` identifier; it will miss access through a renamed/destructured alias, and cannot verify the object identity at parse time.
-4. **The capability-tier registry needs continuous maintenance.** It currently covers the official `@deepseek-ai/dsh-*` surface plus a handful of well-known third-party services; anything else reports `unknown` by design.
-5. **No dynamic verification yet (planned V1).** A malicious plugin could avoid declaring `inject` and still reach a sensitive service through an indirect handle; only a runtime Proxy-instrumented smoke test (loading the plugin in a disposable Cordis context) can catch that class of evasion.
-
-## Project layout
-
-```
-src/extract-inject.js   acorn-based static analyzer (Signal A + B)
-src/resolve-entry.js    package.json main/exports resolver
-src/tiers.js            capability-tiers.yaml loader
-src/scan-package.js     scan an already-on-disk package directory
-src/scan-npm.js         scan the REAL published npm tarball (recommended)
-src/scan-remote.js      scan a GitHub repo's contents API (known-unreliable, see limitations)
-src/plugin.js           the DSH/cordis plugin shell registering the dsh_capcheck tool
-bin/cli.js              single-target CLI
-bin/batch.js            batch GitHub-repo scan
-bin/batch-npm.js        batch npm-tarball scan
-data/capability-tiers.yaml   the maintained sensitivity registry
-reports/                 point-in-time ecosystem scans
-```
-
-## Status
-
-V0 pilot. Scanned locally: 4 official `@deepseek-ai/dsh-*` packages. Scanned via real npm tarball: 14/15 real community plugins (1 has neither `main` nor `exports`, reported as incomplete rather than silently clean). Full methodology and findings: `reports/ecosystem-capability-landscape-v0.md`.
+V0 试点。本地验证 4 个官方 @deepseek-ai/dsh-* 包，真实 npm tarball 验证 14/15 个已发布社区插件（唯一失败的 petdex 因为 package.json 既无 main 也无 exports，报告里诚实标记为不完整而非默认安全）。
 
 ## License
 
