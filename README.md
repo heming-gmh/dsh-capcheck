@@ -43,6 +43,57 @@ dsh plugin --profile web add dsh-capcheck
 
 DSH 的 cordis 插件本质上就是普通的 Node 模块，直接跑在宿主进程里，没有权限沙箱这一层——官方文档里写的原话是把动态插件当成 bash access 来对待。也就是说一个插件装进去之后，理论上能碰到你的 API Key、能执行命令、能绕开审批。dsh-capcheck 做的事情是在你安装之前，先看看这个插件的代码里声明或引用了哪些敏感能力。
 
+## 能力分级表
+
+这张表是整个项目的核心，三种检测信号最终都会往这张表上查。分级逻辑是一个梯子，越往上代表插件拿到之后能造成的破坏越大：
+
+```mermaid
+flowchart TD
+    U["⚪ unknown\n没登记的服务\n默认当高风险处理，不会当成安全"] -->|人工登记后归类| L
+    U --> M
+    U --> H
+    U --> C
+
+    subgraph L ["🟢 low — 纯展示层"]
+        L1[client-ui-*]
+        L2[systemPrompt]
+        L3[commands]
+    end
+
+    subgraph M ["🟡 medium — 读会话历史 / 起网络服务 / 后台任务"]
+        M1[sessions]
+        M2[webServer]
+        M3["loader（能启停其它插件，单独重点关注）"]
+    end
+
+    subgraph H ["🟠 high — 越权文件系统 / 动态执行 / 能注册新工具"]
+        H1[fs]
+        H2[sandbox]
+        H3[tools]
+    end
+
+    subgraph C ["🔴 critical — 等于给了本机 shell 权限"]
+        C1[credentials]
+        C2["shell / bash"]
+        C3[approval]
+        C4[ssh]
+    end
+```
+
+实际扫描时命中的能力也会按这五档统计，V0 阶段扫过的 18 个插件（4 个官方包 + 14 个真实发布的社区插件）一共命中了 28 项能力，分布是这样：
+
+```mermaid
+pie showData
+    title V0 扫描命中的 28 项能力，按分级分布
+    "critical" : 2
+    "high" : 7
+    "medium" : 7
+    "low" : 8
+    "unknown" : 4
+```
+
+表本身在 data/capability-tiers.yaml，纯文本可以直接编辑，欢迎针对没登记的服务提 PR。
+
 ## 怎么检测
 
 三种信号，按可信度从高到低：
@@ -51,7 +102,7 @@ DSH 的 cordis 插件本质上就是普通的 Node 模块，直接跑在宿主�
 2. 裸成员访问，比如 ctx.credentials、ctx.shell。只认对象字面上是 ctx 或 context 的情况，避免误判——之前踩过一个坑，某插件里 client.shell(...) 其实是第三方 ssh2 库自己的方法，跟 ctx.shell 完全无关，后来加了这个限制才排除掉。
 3. package.json 里的依赖声明，不用下载代码就能先粗筛一轮。
 
-这三种信号都会对照一张能力分级表（data/capability-tiers.yaml）。表里查不到的服务标成 unknown，不会默认当作安全。
+三种信号命中的服务名都会去查上面那张能力分级表。
 
 ## 局限
 
